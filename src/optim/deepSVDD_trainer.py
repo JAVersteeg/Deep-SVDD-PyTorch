@@ -43,7 +43,7 @@ class DeepSVDDTrainer(BaseTrainer):
         net = net.to(self.device)
 
         # Get train data loader
-        train_loader, _ = dataset.loaders(batch_size=self.batch_size, num_workers=self.n_jobs_dataloader)
+        train_loader, _, _ = dataset.loaders(batch_size=self.batch_size, num_workers=self.n_jobs_dataloader)
 
         # Set optimizer (Adam optimizer for now)
         optimizer = optim.Adam(net.parameters(), lr=self.lr, weight_decay=self.weight_decay,
@@ -108,15 +108,17 @@ class DeepSVDDTrainer(BaseTrainer):
 
         return net
 
-    def test(self, dataset: BaseADDataset, net: BaseNet):
+    def test(self, dataset: BaseADDataset, net: BaseNet, corner_cracks=True):
         logger = logging.getLogger()
 
         # Set device for network
         net = net.to(self.device)
 
         # Get test data loader
-        _, test_loader = dataset.loaders(batch_size=self.batch_size, num_workers=self.n_jobs_dataloader)
-
+        if not corner_cracks:
+            _, test_loader, _ = dataset.loaders(batch_size=self.batch_size, num_workers=self.n_jobs_dataloader)
+        else:
+            _, _, test_loader = dataset.loaders(batch_size=self.batch_size, num_workers=self.n_jobs_dataloader)
         # Testing
         logger.info('Starting testing...')
         start_time = time.time()
@@ -149,7 +151,10 @@ class DeepSVDDTrainer(BaseTrainer):
         scores = np.array(scores)
 
         self.test_auc = roc_auc_score(labels, scores)
-        logger.info('Test set AUC: {:.2f}%'.format(100. * self.test_auc))
+        if not corner_cracks:
+            logger.info('Test set AUC: {:.2f}%'.format(100. * self.test_auc))
+        else:
+            logger.info('Test set AUC (corner): {:.2f}%'.format(100. * self.test_auc))
 
         logger.info('Finished testing.')
 

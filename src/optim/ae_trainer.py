@@ -24,7 +24,7 @@ class AETrainer(BaseTrainer):
         ae_net = ae_net.to(self.device)
 
         # Get train data loader
-        train_loader, _ = dataset.loaders(batch_size=self.batch_size, num_workers=self.n_jobs_dataloader)
+        train_loader, _, _ = dataset.loaders(batch_size=self.batch_size, num_workers=self.n_jobs_dataloader)
 
         # Set optimizer (Adam optimizer for now)
         optimizer = optim.Adam(ae_net.parameters(), lr=self.lr, weight_decay=self.weight_decay,
@@ -81,7 +81,7 @@ class AETrainer(BaseTrainer):
         ae_net = ae_net.to(self.device)
 
         # Get test data loader
-        _, test_loader = dataset.loaders(batch_size=self.batch_size, num_workers=self.n_jobs_dataloader)
+        _, test_loader, _ = dataset.loaders(batch_size=self.batch_size, num_workers=self.n_jobs_dataloader)
 
         # Testing
         logger.info('Testing autoencoder...')
@@ -92,9 +92,11 @@ class AETrainer(BaseTrainer):
         ae_net.eval()
         with torch.no_grad():
             for data in test_loader:
+
                 inputs, labels, idx = data
                 inputs = inputs.to(self.device)
                 outputs = ae_net(inputs)
+
                 scores = torch.sum((outputs - inputs) ** 2, dim=tuple(range(1, outputs.dim())))
                 loss = torch.mean(scores)
 

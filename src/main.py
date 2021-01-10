@@ -5,17 +5,26 @@ import random
 import numpy as np
 
 from utils.config import Config
-from utils.visualization.plot_images_grid import plot_images_grid
+from utils.visualization.plot_images import plot_images_grid, plot_images_hist
 from deepSVDD import DeepSVDD
 from datasets.main import load_dataset
+from datetime import datetime
+
+gpu = True
+import os
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+if gpu:
+    os.environ["CUDA_VISIBLE_DEVICES"] = "5" # or "x,y" for multiple gpus
+else:
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 
 ################################################################################
 # Settings
 ################################################################################
 @click.command()
-@click.argument('dataset_name', type=click.Choice(['mnist', 'cifar10']))
-@click.argument('net_name', type=click.Choice(['mnist_LeNet', 'cifar10_LeNet', 'cifar10_LeNet_ELU']))
+@click.argument('dataset_name', type=click.Choice(['mnist', 'cifar10', 'fashion', 'crack', 'crack128']))
+@click.argument('net_name', type=click.Choice(['mnist_LeNet', 'cifar10_LeNet', 'cifar10_LeNet_ELU', 'fashionNet', 'crackNet', 'crackNet128']))
 @click.argument('xp_path', type=click.Path(exists=True))
 @click.argument('data_path', type=click.Path(exists=True))
 @click.option('--load_config', type=click.Path(exists=True), default=None,
@@ -53,9 +62,11 @@ from datasets.main import load_dataset
               help='Number of workers for data loading. 0 means that the data will be loaded in the main process.')
 @click.option('--normal_class', type=int, default=0,
               help='Specify the normal class of the dataset (all other classes are considered anomalous).')
+@click.option('--img_name', type=str, default='', help='Name of output images.')
+
 def main(dataset_name, net_name, xp_path, data_path, load_config, load_model, objective, nu, device, seed,
          optimizer_name, lr, n_epochs, lr_milestone, batch_size, weight_decay, pretrain, ae_optimizer_name, ae_lr,
-         ae_n_epochs, ae_lr_milestone, ae_batch_size, ae_weight_decay, n_jobs_dataloader, normal_class):
+         ae_n_epochs, ae_lr_milestone, ae_batch_size, ae_weight_decay, n_jobs_dataloader, normal_class, img_name):
     """
     Deep SVDD, a fully deep method for anomaly detection.
 
@@ -79,7 +90,10 @@ def main(dataset_name, net_name, xp_path, data_path, load_config, load_model, ob
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
-    # Print arguments
+    # Current date and time
+    logger.info('Current date and time is %s.' % datetime.now())
+
+    # () arguments
     logger.info('Log file is %s.' % log_file)
     logger.info('Data path is %s.' % data_path)
     logger.info('Export path is %s.' % xp_path)
@@ -95,7 +109,7 @@ def main(dataset_name, net_name, xp_path, data_path, load_config, load_model, ob
 
     # Print configuration
     logger.info('Deep SVDD objective: %s' % cfg.settings['objective'])
-    logger.info('Nu-paramerter: %.2f' % cfg.settings['nu'])
+    logger.info('Nu-parameter: %.2f' % cfg.settings['nu'])
 
     # Set seed
     if cfg.settings['seed'] != -1:
@@ -167,21 +181,90 @@ def main(dataset_name, net_name, xp_path, data_path, load_config, load_model, ob
     # Plot most anomalous and most normal (within-class) test samples
     indices, labels, scores = zip(*deep_SVDD.results['test_scores'])
     indices, labels, scores = np.array(indices), np.array(labels), np.array(scores)
-    idx_sorted = indices[labels == 0][np.argsort(scores[labels == 0])]  # sorted from lowest to highest anomaly score
-
-    if dataset_name in ('mnist', 'cifar10'):
-
+    
+    idx_all_sorted = indices[np.argsort(scores)]
+    idx_normal_sorted = indices[labels == 0][np.argsort(scores[labels == 0])]  # sorted from lowest to highest anomaly score
+    idx_outlier_sorted = indices[labels == 1][np.argsort(scores[labels == 1])]
+    idx_sorted = indices[np.argsort(scores)]
+    
+    test_auc = deep_SVDD.results['test_auc']
+    
+    if dataset_name in ('mnist', 'cifar10', 'fashion', 'crack', 'crack128'):
         if dataset_name == 'mnist':
-            X_normals = dataset.test_set.test_data[idx_sorted[:32], ...].unsqueeze(1)
-            X_outliers = dataset.test_set.test_data[idx_sorted[-32:], ...].unsqueeze(1)
+            X_normals = dataset.test_set.test_data[idx_sorted_normal[:32], ...].unsqueeze(1)
+            X_outliers = dataset.test_set.test_data[idx_sorted_normal[-32:], ...].unsqueeze(1)
 
         if dataset_name == 'cifar10':
-            X_normals = torch.tensor(np.transpose(dataset.test_set.test_data[idx_sorted[:32], ...], (0, 3, 1, 2)))
-            X_outliers = torch.tensor(np.transpose(dataset.test_set.test_data[idx_sorted[-32:], ...], (0, 3, 1, 2)))
+            X_normals = torch.tensor(np.transpose(dataset.test_set.test_data[idx_sorted_normal[:32], ...], (0, 3, 1, 2)))
+            X_outliers = torch.tensor(np.transpose(dataset.test_set.test_data[idx_sorted_normal[-32:], ...], (0, 3, 1, 2)))
 
-        plot_images_grid(X_normals, export_img=xp_path + '/normals', title='Most normal examples', padding=2)
-        plot_images_grid(X_outliers, export_img=xp_path + '/outliers', title='Most anomalous examples', padding=2)
+        if dataset_name == 'fashion':
+            X_normals = torch.reshape(torch.tensor(dataset.test_set.data[idx_sorted_normal[:32], ...]), (32,28,28)).unsqueeze(1)
+            X_outliers = torch.reshape(torch.tensor(dataset.test_set.data[idx_sorted_normal[-32:], ...]), (32,28,28)).unsqueeze(1)
 
+        plot_imgs = True
+        indices, labels, scores = zip(*deep_SVDD.results['test_scores (corner)'])
+        indices, labels, scores = np.array(indices), np.array(labels), np.array(scores)
+        idx_all_sorted = indices[np.argsort(scores)]  # from lowest to highest score
+        idx_normal_sorted = indices[labels == 0][np.argsort(scores[labels == 0])]  # from lowest to highest score
+        idx_outlier_sorted = indices[labels == 1][np.argsort(scores[labels == 1])]  # from lowest to highest score
+
+        if dataset_name == 'crack':
+            mid = len(idx_all_sorted)/2
+            if len(idx_all_sorted) > 64 and len(idx_normal_sorted) > 64 and len(idx_outlier_sorted) > 100:
+                #X_middle = torch.reshape(torch.tensor(dataset.test_set.data[idx_all_sorted[int(mid-312):int(mid+313)], ...]), (625,64,64)).unsqueeze(1)
+                X_all_normal = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_all_sorted[:64], ...]), (64,64,64)).unsqueeze(1)
+                X_all_outlier = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_all_sorted[-144:], ...]), (144,64,64)).unsqueeze(1)
+                X_normals_normal = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_normal_sorted[:64], ...]), (64,64,64)).unsqueeze(1)
+                X_normals_outlier = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_normal_sorted[-64:], ...]), (64,64,64)).unsqueeze(1)
+                X_outliers_normal = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_outlier_sorted[:100], ...]), (100,64,64)).unsqueeze(1)
+                X_outliers_outlier = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_outlier_sorted[-100:], ...]), (100,64,64)).unsqueeze(1)
+            else:
+                plot_imgs = False
+                X_all_normal = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_all_sorted[:1], ...]), (1,64,64)).unsqueeze(1)
+                X_all_outlier = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_all_sorted[-1:], ...]), (1,64,64)).unsqueeze(1)
+                X_normals_normal = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_normal_sorted[:1], ...]), (1,64,64)).unsqueeze(1)
+                X_normals_outlier = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_normal_sorted[-1:], ...]), (1,64,64)).unsqueeze(1)
+                X_outliers_normal = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_outlier_sorted[:1], ...]), (1,64,64)).unsqueeze(1)
+                X_outliers_outlier = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_outlier_sorted[-1:], ...]), (1,64,64)).unsqueeze(1)
+                
+        if dataset_name == 'crack128':
+            mid = len(idx_all_sorted)/2
+            if len(idx_all_sorted) > 64 and len(idx_normal_sorted) > 64 and len(idx_outlier_sorted) > 100:
+
+                #X_middle = torch.reshape(torch.tensor(dataset.test_set.data[idx_all_sorted[int(mid-312):int(mid+313)], ...]), (625,128,128)).unsqueeze(1)
+                X_all_normal = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_all_sorted[:64], ...]), (64,128,128)).unsqueeze(1)
+                X_all_outlier = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_all_sorted[-144:], ...]), (144,128,128)).unsqueeze(1)
+                X_normals_normal = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_normal_sorted[:64], ...]), (64,128,128)).unsqueeze(1)
+                X_normals_outlier = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_normal_sorted[-64:], ...]), (64,128,128)).unsqueeze(1)
+                X_outliers_normal = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_outlier_sorted[:100], ...]), (100,128,128)).unsqueeze(1)
+                X_outliers_outlier = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_outlier_sorted[-100:], ...]), (100,128,128)).unsqueeze(1)
+            else:
+                plot_imgs = False
+                X_all_normal = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_all_sorted[:1], ...]), (1,128,128)).unsqueeze(1)
+                X_all_outlier = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_all_sorted[-1:], ...]), (1,128,128)).unsqueeze(1)
+                X_normals_normal = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_normal_sorted[:1], ...]), (1,128,128)).unsqueeze(1)
+                X_normals_outlier = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_normal_sorted[-1:], ...]), (1,128,128)).unsqueeze(1)
+                X_outliers_normal = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_outlier_sorted[:1], ...]), (1,128,128)).unsqueeze(1)
+                X_outliers_outlier = torch.reshape(torch.tensor(dataset.test_set_corner.data[idx_outlier_sorted[-1:], ...]), (1,128,128)).unsqueeze(1)
+
+        if plot_imgs:
+            #plot_images_grid(X_middle, export_img=xp_path + '/plots/' + img_name + '_all_middle_', title='All samples', padding=2, nrow=25)
+            #plot_images_grid(X_all_normal, export_img=xp_path + '/plots/' + img_name + '_all_low_', title='Least anomalous samples', padding=2, nrow=8)
+            plot_images_grid(X_all_outlier, export_img=xp_path + '/plots/' + img_name + '_all_high_', title='Most anomalous samples', padding=2, nrow=12)
+            #plot_images_grid(X_normals_normal, export_img=xp_path + '/plots/' + img_name + '_normals_low_', title='Least anomalous normal samples', padding=2, nrow=8)
+            plot_images_grid(X_normals_outlier, export_img=xp_path + '/plots/' + img_name + '_normals_high_', title='Most anmalous normal samples', padding=2, nrow=8)
+            plot_images_grid(X_outliers_normal, export_img=xp_path + '/plots/' + img_name + '_outliers_low_', title='Least anomalous anomaly samples', padding=2, nrow=10)
+            plot_images_grid(X_outliers_outlier, export_img=xp_path + '/plots/' + img_name + '_outliers_high_', title='Most anomalous anomaly samples', padding=2, nrow=10)
+   
+        test_auc = deep_SVDD.results['test_auc']
+        test_auc_corner = deep_SVDD.results['test_auc (corner)']
+        plot_images_hist(scores[labels == 0], scores[labels == 1], export_img=xp_path + '/plots/' + img_name + '_hist_corner', title='Deep SVDD Anomaly scores of normal and crack samples (with corner cracks)', auc=test_auc_corner)
+        
+        indices, labels, scores = zip(*deep_SVDD.results['test_scores'])
+        indices, labels, scores = np.array(indices), np.array(labels), np.array(scores)
+        plot_images_hist(scores[labels == 0], scores[labels == 1], export_img=xp_path + '/plots/' + img_name + '_hist', title='Deep SVDD anomaly scores of normal and crack samples', auc=test_auc)
+    
     # Save results, model, and configuration
     deep_SVDD.save_results(export_json=xp_path + '/results.json')
     deep_SVDD.save_model(export_model=xp_path + '/model.tar')

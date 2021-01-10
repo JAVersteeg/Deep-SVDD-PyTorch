@@ -45,6 +45,7 @@ class CIFAR10_Dataset(TorchvisionDataset):
 
         self.test_set = MyCIFAR10(root=self.root, train=False, download=True,
                                   transform=transform, target_transform=target_transform)
+        print("CIFAR Shape:", self.test_set.test_data.shape)
 
 
 class MyCIFAR10(CIFAR10):
@@ -64,6 +65,8 @@ class MyCIFAR10(CIFAR10):
             img, target = self.train_data[index], self.train_labels[index]
         else:
             img, target = self.test_data[index], self.test_labels[index]
+
+        # goes in as 3D tensor object (32,32,3)
 
         # doing this so that it is consistent with all other datasets
         # to return a PIL Image

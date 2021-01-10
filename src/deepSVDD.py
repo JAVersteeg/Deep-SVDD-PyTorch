@@ -58,8 +58,8 @@ class DeepSVDD(object):
         self.net = build_network(net_name)
 
     def train(self, dataset: BaseADDataset, optimizer_name: str = 'adam', lr: float = 0.001, n_epochs: int = 50,
-              lr_milestones: tuple = (), batch_size: int = 128, weight_decay: float = 1e-6, device: str = 'cuda',
-              n_jobs_dataloader: int = 0):
+                 lr_milestones: tuple = (), batch_size: int = 128, weight_decay: float = 1e-6, device: str = 'cuda',
+                 n_jobs_dataloader: int = 0):
         """Trains the Deep SVDD model on the training data."""
 
         self.optimizer_name = optimizer_name
@@ -79,12 +79,22 @@ class DeepSVDD(object):
             self.trainer = DeepSVDDTrainer(self.objective, self.R, self.c, self.nu,
                                            device=device, n_jobs_dataloader=n_jobs_dataloader)
 
-        self.trainer.test(dataset, self.net)
+         # To test on two different test sets, one with and one without corner cracks.
+        corner_cracks = False
+
+        self.trainer.test(dataset, self.net, corner_cracks=corner_cracks)
         # Get results
         self.results['test_auc'] = self.trainer.test_auc
         self.results['test_time'] = self.trainer.test_time
         self.results['test_scores'] = self.trainer.test_scores
-
+        
+        corner_cracks = True
+        self.trainer.test(dataset, self.net, corner_cracks=corner_cracks)
+        # Get results
+        self.results['test_auc (corner)'] = self.trainer.test_auc
+        self.results['test_time (corner)'] = self.trainer.test_time
+        self.results['test_scores (corner)'] = self.trainer.test_scores
+        
     def pretrain(self, dataset: BaseADDataset, optimizer_name: str = 'adam', lr: float = 0.001, n_epochs: int = 100,
                  lr_milestones: tuple = (), batch_size: int = 128, weight_decay: float = 1e-6, device: str = 'cuda',
                  n_jobs_dataloader: int = 0):
@@ -112,7 +122,7 @@ class DeepSVDD(object):
         # Load the new state_dict
         self.net.load_state_dict(net_dict)
 
-    def save_model(self, export_model, save_ae=True):
+    def save_model(self, export_model, save_ae=False): # save_ae set to false
         """Save Deep SVDD model to export_model."""
 
         net_dict = self.net.state_dict()

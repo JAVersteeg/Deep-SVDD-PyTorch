@@ -4,6 +4,7 @@ from torchvision.datasets import MNIST
 from base.torchvision_dataset import TorchvisionDataset
 from .preprocessing import get_target_label_idx, global_contrast_normalization
 
+import numpy as np
 import torchvision.transforms as transforms
 
 
@@ -64,6 +65,8 @@ class MyMNIST(MNIST):
             img, target = self.train_data[index], self.train_labels[index]
         else:
             img, target = self.test_data[index], self.test_labels[index]
+
+        # goes in as 2D np array
 
         # doing this so that it is consistent with all other datasets
         # to return a PIL Image
